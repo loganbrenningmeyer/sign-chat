@@ -1,15 +1,20 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import os
-from PIL import Image
+from PIL import Image, ImageFile
 import scipy.io as sio
 import numpy as np
 import random
 import cv2
+import gc
+from tqdm import tqdm
 
 # -- YOLO
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator
+
+# -- Enable loading of truncated images
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 '''
 Model for hand bounding box estimation
@@ -217,9 +222,11 @@ Params:
 - dataset {0: both, 1: Multiview, 2: EgoHands}
 '''
 def create_datasets(dataset=0, shuffle=True):
-    if dataset not in range(3):
+    if dataset not in range(4):
         return None
     
+    image_count = 0
+
     '''
     Group all images into a list and all annotations into a list 
     in their respective order
@@ -230,14 +237,20 @@ def create_datasets(dataset=0, shuffle=True):
     images = []
     annotations = []
 
-    if (dataset == 1 or dataset == 0):
-        '''
-        Multiview Dataset
+    '''
+    Multiview Dataset
 
-        data_idx: [1, 21]
-        '''
-        # -- Iterate through each data folder
-        for data_idx in range(1, 2):
+    data_idx: [1, 21]
+    '''
+    if (dataset == 1 or dataset == 0):
+
+        print("\n------ Loading Multiview Dataset ------\n")
+
+        # -- Iterate through each data folder (First 5)
+        for data_idx in range(1, 5 + 1):
+
+            print(f"Data Idx: {data_idx}")
+
             # -- Set data directory
             data_dir = f"../SignChat_Data/multiview_hand_pose_dataset_release/data_{data_idx}"
 
@@ -246,16 +259,20 @@ def create_datasets(dataset=0, shuffle=True):
                 # -- Get all image filenames
                 image_filenames = sorted([f for f in filenames if 'jpg' in str.split(f, '.')])
 
-                for i, image_file in enumerate(image_filenames):
+                for i, image_file in tqdm(enumerate(image_filenames)):
                     # -- Read the image and store in images array
                     with Image.open(os.path.join(data_dir, image_file)) as image:
                         images.append(image.convert('RGB'))
-
-                    # if i % 50 == 0:
-                    #     print(f"Filename: {os.path.join(data_dir, image_file)}")
-                    #     os.system('cls')
+                        image_count += 1
 
                     bbox_file = f"{str.split(image_file, '_')[0]}_bbox_{str.split(str.split(image_file, '_')[2], '.')[0]}.txt"
+
+                    # -- Check if bbox_file exists
+                    if bbox_file not in filenames:
+                        # Remove last image just appended
+                        images.pop(-1)
+                        # Continue to next file
+                        continue
 
                     # -- Convert the bounding box coordinates to YOLO format and store in annotations array
                     with open(os.path.join(data_dir, bbox_file)) as f:
@@ -280,10 +297,25 @@ def create_datasets(dataset=0, shuffle=True):
                         # -- Store the annotation in annotations
                         annotations.append([[0, x_center, y_center, width, height]])
 
+                    # -- Garbage collect to avoid overusing memory
+                    if i % 200 == 0:
+                        gc.collect()
+
+            # -- Save images
+            save_datasets(images=images, annotations=annotations, shuffle=True)
+            # -- Clear lists to free memory
+            images.clear()
+            annotations.clear()
+            gc.collect()
+
+
+    '''
+    EgoHands Dataset
+    '''
     if (dataset == 2 or dataset == 0):
-        '''
-        EgoHands Dataset
-        '''
+
+        print("\n------ Loading EgoHands Dataset ------\n")
+
         # -- Set data directory
         data_dir = '../SignChat_Data/egohands_data/_LABELLED_SAMPLES'
 
@@ -294,7 +326,10 @@ def create_datasets(dataset=0, shuffle=True):
             break
 
         # -- Iterate through all datafolders
-        for folder in data_folders:
+        for i, folder in tqdm(enumerate(data_folders)):
+
+            print(f"Data Folder {i}: {folder}")
+
             for dirpath, dirnames, filenames in os.walk(os.path.join(data_dir, folder)):
                 # -- Get all image filenames
                 image_filenames = sorted([f for f in filenames if 'jpg' in str.split(f, '.')])
@@ -303,6 +338,7 @@ def create_datasets(dataset=0, shuffle=True):
                 for image_file in image_filenames:
                     with Image.open(os.path.join(data_dir, folder, image_file)) as image:
                         images.append(image.convert('RGB'))
+                        image_count += 1
 
                 '''
                 polygons is an array of hand bounding data 
@@ -356,6 +392,155 @@ def create_datasets(dataset=0, shuffle=True):
                     # -- Store frame's annotations in annotations array
                     annotations.append(frame_annotations)
 
+            # -- Save images
+            save_datasets(images=images, annotations=annotations, shuffle=True)
+            # -- Clear lists to free memory
+            images.clear()
+            annotations.clear()
+            gc.collect()
+
+    '''
+    Hand Dataset
+    '''
+    if (dataset == 3 or dataset == 0):
+
+        print("------ Loading Hand Dataset ------")
+
+        # -- Set data directory
+        data_dir = '../SignChat_Data/Hand Dataset/hand_dataset'
+
+        hand_datasets = ['test_dataset', 'training_dataset', 'validation_dataset']
+
+        for hand_dataset in hand_datasets:
+
+            print(f"Hand dataset: {hand_dataset}")
+
+            # -- Set specific dataset directory
+            dataset_dir = os.path.join(data_dir, hand_dataset, hand_dataset[:len(hand_dataset)-3])
+
+            # -- Get all image/annotation filenames
+            for dirpath, dirnames, filenames in os.walk(os.path.join(dataset_dir, 'images')):
+                # -- Image/annotation filenames share the same name
+                image_filenames = sorted([f for f in filenames if 'jpg' in str.split(f, '.')])
+                annotation_filenames = [os.path.splitext(image_file)[0] + '.mat' for image_file in image_filenames]
+            
+            for image_file, annotation_file in tqdm(zip(image_filenames, annotation_filenames)):
+
+                # -- Store image in images array
+                with Image.open(os.path.join(dataset_dir, 'images', image_file)) as image:
+                    images.append(image.convert('RGB'))
+                    image_count += 1
+
+                    # -- Save image dimensions for normalization
+                    image_width, image_height = image.size
+
+                # -- Read the .mat file and calculate bounding box info
+                frame_annotations = []
+
+                bbox_data = sio.loadmat(os.path.join(dataset_dir, 'annotations', annotation_file))['boxes'][0]
+
+                for bbox in bbox_data:
+                    bbox_points = []
+                    for i in range(4):
+                        bbox_points.append(bbox[0][0][i][0])
+
+                    # -- Calculate x_min, x_max, y_min, y_max
+                    x_min = min(np.array(bbox_points).T[1])
+                    x_max = max(np.array(bbox_points).T[1])
+
+                    y_min = min(np.array(bbox_points).T[0])
+                    y_max = max(np.array(bbox_points).T[0])
+
+                    # -- Calculate YOLO values
+                    x_center = (x_min + x_max) / 2
+                    y_center = (y_min + y_max) / 2
+
+                    width = x_max - x_min
+                    height = y_max - y_min
+
+                    # -- Normalize by image dimension
+                    x_center /= image_width
+                    width /= image_width
+
+                    y_center /= image_height
+                    height /= image_height
+
+                    frame_annotations.append([0, x_center, y_center, width, height])
+
+                annotations.append(frame_annotations)
+
+            # -- Save images
+            save_datasets(images=images, annotations=annotations, shuffle=True)
+            # -- Clear lists to free memory
+            images.clear()
+            annotations.clear()
+            gc.collect()
+
+    # '''
+    # Prepare training/testing datasets
+    # '''
+    # # -- Shuffle arrays in order
+    # if shuffle:
+    #     combined = list(zip(images, annotations))
+    #     random.shuffle(combined)
+    #     images, annotations = zip(*combined)
+    #     images = list(images)
+    #     annotations = list(annotations)
+
+    # print(len(images))
+    # print(len(annotations))
+
+    # # -- Create training/testing splits
+    # train_images = [image for image in images[:int(len(images) * 0.8)]]
+    # val_images = [image for image in images[int(len(images) * 0.8):]]
+
+    # train_annotations = annotations[:int(len(annotations) * 0.8)]
+    # val_annotations = annotations[int(len(annotations) * 0.8):]
+
+
+    # '''
+    # Save image files into dataset folder
+    # '''
+    # image_num = get_next_number('dataset/images/train')
+    # for i, (train_image, train_annotation) in enumerate(zip(train_images, train_annotations)):
+    #     # -- Save training image
+    #     train_image.save(f'dataset/images/train/image{image_num + i}.jpg')
+    #     # -- Save training annotation
+    #     annotation_txt = [' '.join(map(str, annotation)) for annotation in train_annotation]
+    #     with open(f'dataset/labels/train/image{image_num + i}.txt', 'w') as file:
+    #         for annotation_line in annotation_txt:
+    #             file.write(annotation_line + '\n')
+                
+    # image_num = get_next_number('dataset/images/val')
+    # for i, (val_image, val_annotation) in enumerate(zip(val_images, val_annotations)):
+    #     # -- Save validation image
+    #     val_image.save(f'dataset/images/val/image{image_num + i}.jpg')
+    #     # -- Save validation annotation
+    #     annotation_txt = [' '.join(map(str, annotation)) for annotation in val_annotation]
+    #     with open(f'dataset/labels/val/image{image_num + i}.txt', 'w') as file:
+    #         for annotation_line in annotation_txt:
+    #             file.write(annotation_line + '\n')
+
+    '''
+    Return:
+    - images (array of PIL.Image files)
+    - annotations (array of [class_id, x_center, y_center, width, height] bbox data)
+    '''
+    return image_count
+
+def get_next_number(folder):
+    image_numbers = []
+    for filename in os.listdir(folder):
+        base_name = os.path.splitext(filename)[0]
+        if base_name.startswith("image") and base_name[5:].isdigit():
+            image_numbers.append(int(base_name[5:]))
+    if image_numbers:
+        return max(image_numbers) + 1
+    else:
+        return 0
+
+def save_datasets(images, annotations, shuffle=True):
+
     '''
     Prepare training/testing datasets
     '''
@@ -367,8 +552,7 @@ def create_datasets(dataset=0, shuffle=True):
         images = list(images)
         annotations = list(annotations)
 
-    print(len(images))
-    print(len(annotations))
+    print(f"Writing {len(images)} images/annotations to disk...")
 
     # -- Create training/testing splits
     train_images = [image for image in images[:int(len(images) * 0.8)]]
@@ -381,21 +565,23 @@ def create_datasets(dataset=0, shuffle=True):
     '''
     Save image files into dataset folder
     '''
+    image_num = get_next_number('dataset/images/train')
     for i, (train_image, train_annotation) in enumerate(zip(train_images, train_annotations)):
         # -- Save training image
-        train_image.save(f'dataset/images/train/image{i}.jpg')
+        train_image.save(f'dataset/images/train/image{image_num + i}.jpg')
         # -- Save training annotation
         annotation_txt = [' '.join(map(str, annotation)) for annotation in train_annotation]
-        with open(f'dataset/labels/train/image{i}.txt', 'w') as file:
+        with open(f'dataset/labels/train/image{image_num + i}.txt', 'w') as file:
             for annotation_line in annotation_txt:
                 file.write(annotation_line + '\n')
 
+    image_num = get_next_number('dataset/images/val')
     for i, (val_image, val_annotation) in enumerate(zip(val_images, val_annotations)):
         # -- Save validation image
-        val_image.save(f'dataset/images/val/image{i}.jpg')
+        val_image.save(f'dataset/images/val/image{image_num + i}.jpg')
         # -- Save validation annotation
         annotation_txt = [' '.join(map(str, annotation)) for annotation in val_annotation]
-        with open(f'dataset/labels/val/image{i}.txt', 'w') as file:
+        with open(f'dataset/labels/val/image{image_num + i}.txt', 'w') as file:
             for annotation_line in annotation_txt:
                 file.write(annotation_line + '\n')
 
@@ -404,7 +590,7 @@ def create_datasets(dataset=0, shuffle=True):
     - images (array of PIL.Image files)
     - annotations (array of [class_id, x_center, y_center, width, height] bbox data)
     '''
-    return train_images, train_annotations, val_images, val_annotations
+    return True
 
 '''
 Train YOLO model
@@ -412,14 +598,23 @@ Train YOLO model
 def train_YOLO():
     model = YOLO('yolov8n.yaml')
 
-    model.train(data='box.yaml', epochs=100, imgsz=640, batch=16, device=0, workers=8)
+    model.train(data='box.yaml', epochs=100, imgsz=640, batch=32, device=0, workers=8)
 
     metrics = model.val()
+    print(metrics)
 
 if __name__ == "__main__":
 
+    # try:
+    #     num_images = create_datasets(dataset=0, shuffle=True)
+    # except Exception as e:
+    #     print(e)
 
-    model = YOLO('runs/detect/train5/weights/best.pt')
+    # print(f"Total # images: {num_images}")
+
+    model = YOLO('runs/detect/train6/weights/best.pt')
+
+    # train_YOLO()
 
     # -- Create video capture window
     cap = cv2.VideoCapture(0)
@@ -448,10 +643,6 @@ if __name__ == "__main__":
 
     cap.release()
     cv2.destroyAllWindows()
-
-    results = model('sample_img.jpg')
-    
-    print(results.boxes)
 
     '''
     Train YOLOv5 model on images and annotations
