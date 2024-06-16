@@ -623,6 +623,7 @@ if __name__ == "__main__":
 
     while True:
         _, img = cap.read()
+        img = cv2.flip(img, 1)
 
         results = model.predict(img)
 
