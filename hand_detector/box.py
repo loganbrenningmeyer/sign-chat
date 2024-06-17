@@ -596,9 +596,10 @@ def save_datasets(images, annotations, shuffle=True):
 Train YOLO model
 '''
 def train_YOLO():
-    model = YOLO('yolov8n.yaml')
+    # -- Load pretrained model
+    model = YOLO('yolov8n.yaml').load('yolov8n.pt')
 
-    model.train(data='box.yaml', epochs=100, imgsz=640, batch=32, device=0, workers=8)
+    model.train(data='box.yaml', epochs=150, imgsz=640, batch=32, device=0, workers=8)
 
     metrics = model.val()
     print(metrics)

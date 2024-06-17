@@ -58,7 +58,7 @@ def video_output():
         if not frame_queue.full():
             frame_queue.put(frame)
 
-        if cv2.waitKey(1) == 27: # Exit on ESC
+        if cv2.waitKey(20) == 27: # Exit on ESC
             break
 
     vc.release()
