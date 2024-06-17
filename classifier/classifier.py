@@ -11,6 +11,13 @@ from torch.utils.data import DataLoader, Subset, ConcatDataset
 # -- PyTorch Lightning
 import lightning as L
 
+'''
+To-Do:
+- Add augmentations
+- Increase training
+- Find more data
+'''
+
 # Set float32 matmul precision for Tensor Cores
 torch.set_float32_matmul_precision('high')
 

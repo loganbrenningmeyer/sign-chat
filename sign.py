@@ -108,7 +108,7 @@ if __name__ == "__main__":
 
     while True:
         _, img = cap.read()
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = cv2.flip(img, 1)
 
         results = detector.predict(img)
@@ -135,7 +135,9 @@ if __name__ == "__main__":
                 # -- Classify cropped image
                 bbox_img = Image.fromarray(bbox_img)
 
-                cv2.imshow('BBOX', np.array(cv2.cvtColor(np.array(bbox_img), cv2.COLOR_RGB2BGR)))
+                cv2.imshow('BBOX', np.array(bbox_img))
+
+                bbox_img = Image.fromarray(cv2.cvtColor(np.array(bbox_img), cv2.COLOR_BGR2RGB))
 
                 # -- Define transformations
                 transform = transforms.Compose([transforms.Resize(256),
@@ -170,7 +172,7 @@ if __name__ == "__main__":
                 annotator.box_label(box.xyxy[0], f'{predicted_class_idx, (list(class_to_idx.keys())[predicted_class_idx])} : {probabilities[0][predicted_class_idx]}')
 
         img = annotator.result()
-        cv2.imshow('YOLO V8 Detection', cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+        cv2.imshow('YOLO V8 Detection', img)
         if cv2.waitKey(1) == 27:
             break
 

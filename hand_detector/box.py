@@ -17,6 +17,13 @@ from ultralytics.utils.plotting import Annotator
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 '''
+To-Do:
+- Add augmentations 
+- Add new dataset (American Sign Language used for classification)
+- Increase training
+'''
+
+'''
 Model for hand bounding box estimation
 - Options
     * YOLO
@@ -475,6 +482,32 @@ def create_datasets(dataset=0, shuffle=True):
             images.clear()
             annotations.clear()
             gc.collect()
+
+    '''
+    American Sign Language Letters
+    '''
+    if (dataset == 4 or dataset == 0):
+
+        print("------ Loading ASL Letters Dataset ------")
+
+        asl_datasets = ['train', 'test', 'val']
+
+        # -- Get all images
+        data_dir = '../../SignChat_Data/American Sign Language Letters.v1-v1.yolov8/'
+
+        for asl_dataset in asl_datasets:
+            for dirpath, dirnames, filenames in os.walk(os.path.join(data_dir, asl_dataset)):
+                
+
+        # -- Get all annotations
+
+
+        # -- Save images
+        save_datasets(images=images, annotations=annotations, shuffle=True)
+        # -- Clear lists to free memory
+        images.clear()
+        annotations.clear()
+        gc.collect()
 
     # '''
     # Prepare training/testing datasets
